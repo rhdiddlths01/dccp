@@ -6,49 +6,24 @@ STUDENTS = {
     "team19": "http://localhost:8000",
 }
 
-PROBLEMS = {
-    "1": {
-        "secret_word": "flame",
-        "candidate_words": [
-            "crane", "slate", "blame", "frame", "glove",
-            "flame", "brave", "grape", "grace", "fluke",
-            "plane", "blaze", "pride", "flint", "shame"
-        ]
-    },
-    "2": {
-        "secret_word": "stare",
-        "candidate_words": [
-            "slate", "share", "spare", "stare", "start",
-            "scale", "score", "shore", "store", "shard",
-            "swear", "style", "shine", "state", "spine"
-        ]
-    },
-    "3": {
-        "secret_word": "boost",
-        "candidate_words": [
-            "boast", "boost", "boots", "bloat", "blast",
-            "blunt", "broth", "bound", "borst", "bosom",
-            "boson", "ghost", "toast", "roost", "posty"
-        ]
-    },
-    "4": {
-        "secret_word": "media",
-        "candidate_words": [
-            "meaty", "medal", "media", "macho", "mania",
-            "melon", "metal", "manga", "maria", "mecca",
-            "metro", "modal", "motel", "menia", "minor"
-        ]
-    },
-    "5": {
-        "secret_word": "poppy",
-        "candidate_words": [
-            "poppy", "happy", "soppy", "moppy", "daddy",
-            "puppy", "penny", "perky", "paddy", "hippy",
-            "picky", "piggy", "puffy", "patsy", "poppy"
-        ]
-    }
-}
+def load_words():
+    with open("words.txt", "r") as f:
+        words = [line.strip() for line in f if len(line.strip()) == 5]
+    return words
 
+def build_problems():
+    all_words = load_words()
+    problems = {}
+    a_words = ['facet']
+
+    for i, secret in enumerate(a_words):
+        problems[str(i + 1)] = {
+            "secret_word": secret,
+            "candidate_words": all_words
+        }
+    return problems
+
+PROBLEMS = build_problems()
 
 def compute_feedback(secret, guess):
     feedback = [0] * 5  # Default: 0
@@ -109,6 +84,7 @@ def run_for_team(team_name, base_url):
 
         guess_count = 0
         feedback = None
+        start_time = time.time()  # 문제 시작 시간
 
         while True:
             try:
@@ -127,14 +103,12 @@ def run_for_team(team_name, base_url):
             guess_count += 1
 
             if guess == secret:
-                print(f"[{team_name}] Solved {problem_id} in {guess_count} guesses.")
+                elapsed = time.time() - start_time
+                print(f"[{team_name}] Solved {problem_id} in {guess_count} guesses. ({elapsed:.2f} sec)")
                 break
 
             raw_feedback = compute_feedback(secret, guess)
             feedback = verbalize_feedback(secret, guess, raw_feedback)
-
-            ## 이거 그냥 일단 출력해보는거 ㅇㅇ
-            print(f"[{team_name}] Turn {guess_count}: feedback = {feedback}")
 
     print(f"[{team_name}] Finished.")
 
