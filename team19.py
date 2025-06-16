@@ -71,131 +71,117 @@ class Solver:
         last_guess = self.guess_history[problem_id][-1]
 
         prompt = f"""
+You are a Wordle feedback pattern converter.
 
-   You are a strict Wordle feedback converter.
+Your ONLY job is to convert a 5-letter word guess and its natural language feedback into a pattern of exactly 5 characters using:
+- B = correct letter in correct position  
+- Y = correct letter in wrong position  
+- G = letter is not in the word or extra duplicate
 
-You will ONLY receive:
-- A 5-letter guessed word
-- Natural language feedback for each letter
+Strict Rules:
+- Do NOT guess. Do NOT infer. Use ONLY what the feedback says.
+- If no information is given about a letter, mark it as G.
+- If letters repeat, mark only as many B/Y as mentioned, starting from left.
+- The result must be exactly 5 characters, using only B, Y, or G.
+- Return just the pattern. No comments, no quotes, no explanation.
 
-You will NEVER be given the correct answer.
-You must NEVER try to guess it or infer anything from the guess.
+---
+Examples:
+Guess: grape  
+Feedback: 'g' is not in the word.  'r' is not in the word.  'a' is in the correct position.  'p' is not in the word.  'e' is not in the word.  
+→ Output: GGBGG
 
-Your one and only job:
-Convert the natural language feedback into a 5-letter string using only:
-- B = correct letter, correct position
-- Y = correct letter, wrong position
-- G = letter not in the word or extra duplicate
+Guess: place  
+Feedback: 'p' is not in the word.  'l' is not in the word.  'a' is in the correct position.  'c' is not in the word.  'e' is in the correct position.  
+→ Output: GGBGB
 
-Rules you must obey:
-- Do not guess. Do not think.
-- Use ONLY the feedback text.
-- If there’s no mention of a letter being correct or misplaced, mark it as G.
-- For repeated letters, mark only the correct number of times, starting from left.
-- Output MUST be one 5-letter string. No quotes, no extra text, no explanation.
+Guess: crate  
+Feedback: 'c' is in the word but in the wrong position.  'r' is in the correct position.  'a' is in the correct position.  't' is in the word but in the wrong position.  'e' is in the correct position.  
+→ Output: YBBYB
+
+Guess: level  
+Feedback: The letter 'l' is in the word but in the wrong position.  The letter 'e' is in the correct position.  The letter 'v' is not in the word.  The second 'e' is not in the word.  The final 'l' is in the word but in the wrong position.  
+→ Output: YBGGY
 
 ---
 
-Example:
-
-(
-  "abped",
-  "'a' is in the correct position.  'b' is in the correct position.  'p' is not in the word.  'e' is in the word but in the wrong position.  'd' is in the word but in the wrong position.",
-  "BBGYY"
-),
-
-(
-  "eecee",
-  "The first 'e' is in the word but in the wrong position.  The second 'e' is not in the word.  The letter 'c' is in the correct position.  The fourth 'e' is not in the word.  The final 'e' is in the correct position.",
-  "YGBGB"
-),
-("level", "The letter 'l' is in the word but in the wrong position.  The letter 'e' is in the correct position.  The letter 'v' is not in the word.  The second 'e' is not in the word.  The final 'l' is in the word but in the wrong position.",  "YBGGY")
-
-  ('crane', "'c' is not in the word.  'r' is not in the word.  'a' is in the correct position.  'n' is not in the word.  'e' is in the correct position.", 'GGBGB'),
-  ('state', "'s' is in the correct position.  't' is not in the word.  'a' is in the correct position.  't' is in the correct position.  'e' is in the correct position.", 'BGBBB'),
-  ('level', "'l' is in the word but in the wrong position.  'e' is in the correct position.  'v' is not in the word.  'e' is not in the word.  'l' is in the word but in the wrong position.", 'YBGGY'),
-  ('spire', "'s' is not in the word.  'p' is in the word but in the wrong position.  'i' is in the correct position.  'r' is in the word but in the wrong position.  'e' is in the correct position.", 'GYBYB'),
-  ('glare', "'g' is in the correct position.  'l' is not in the word.  'a' is in the correct position.  'r' is in the word but in the wrong position.  'e' is in the correct position.", 'BGBYB'),
-  ('crate', "'c' is in the word but in the wrong position.  'r' is in the correct position.  'a' is in the correct position.  't' is in the word but in the wrong position.  'e' is in the correct position.", 'YBBYB'),
-  ('store', "'s' is in the correct position.  't' is in the correct position.  'o' is in the correct position.  'r' is not in the word.  'e' is in the correct position.", 'BBBGB'),
-  ('grave', "'g' is not in the word.  'r' is in the correct position.  'a' is in the correct position.  'v' is in the correct position.  'e' is in the correct position.", 'GBBBB'),
-  ('grove', "'g' is in the correct position.  'r' is not in the word.  'o' is in the correct position.  'v' is in the correct position.  'e' is in the correct position.", 'BGBBB'),
-  ('shape', "'s' is in the correct position.  'h' is in the correct position.  'a' is in the correct position.  'p' is not in the word.  'e' is in the correct position.", 'BBBGB'),
-  ('grace', "'g' is not in the word.  'r' is in the correct position.  'a' is in the correct position.  'c' is in the word but in the wrong position.  'e' is in the correct position.", 'GBBYB'),
-  ('blame', "'b' is not in the word.  'l' is in the correct position.  'a' is in the correct position.  'm' is not in the word.  'e' is in the correct position.", 'GBBGB'),
-  ('modal', "'m' is in the correct position.  'o' is not in the word.  'd' is in the correct position.  'a' is in the word but in the wrong position.  'l' is not in the word.", 'BGBYG'),
-  ('clown', "'c' is in the correct position.  'l' is not in the word.  'o' is in the correct position.  'w' is in the correct position.  'n' is in the correct position.", 'BGBBB'),
-  ('spice', "'s' is in the correct position.  'p' is in the correct position.  'i' is in the correct position.  'c' is not in the word.  'e' is in the correct position.", 'BBBGB'),
-  ('house', "'h' is not in the word.  'o' is in the correct position.  'u' is in the correct position.  's' is in the correct position.  'e' is in the correct position.", 'GBBBB'),
-  ('shone', "'s' is in the correct position.  'h' is in the correct position.  'o' is not in the word.  'n' is in the correct position.  'e' is in the correct position.", 'BBGBB'),
-  ('blaze', "'b' is in the correct position.  'l' is in the correct position.  'a' is in the correct position.  'z' is not in the word.  'e' is in the correct position.", 'BBBGB'),
-  ('place', "'p' is in the correct position.  'l' is in the correct position.  'a' is in the correct position.  'c' is not in the word.  'e' is in the correct position.", 'BBBGB'),
-  ('flake', "'f' is in the correct position.  'l' is in the correct position.  'a' is not in the word.  'k' is in the correct position.  'e' is in the correct position.", 'BBGBB')
-]
-
----
-
-Now process this input:
-
+Now convert the following input into a 5-letter pattern.  
 Guess: {last_guess}  
-Feedback:  
-{last_feedback}  
+Feedback: {last_feedback}  
 → Output:
-
-Let's think step by step.
         """
 
-        pattern = (
-            complete(
-                model=self.model,
-                prompt=[{"role": "user", "content": prompt}],
-                options={"max_tokens": 5, "temperature": 0.0},
-                session=self.session,
-            )
-            .strip()
-            .upper()
-        )
-        import re
+        VALID_CHARS = {"B", "Y", "G"}
+
+        def get_valid_pattern(prompt, max_retries=3):
+            for attempt in range(max_retries):
+                pattern = (
+                    complete(
+                        model=self.model,
+                        prompt=[{"role": "user", "content": prompt}],
+                        options={"max_tokens": 7, "temperature": 0.0},
+                        session=self.session,
+                    )
+                    .strip()
+                    .upper()
+                    .replace(" ", "")[:5]
+                )
+
+                if len(pattern) == 5 and all(c in VALID_CHARS for c in pattern):
+                    return pattern
+
+                print(f"⚠️ Invalid pattern received: {pattern} (attempt {attempt + 1})")
+
+            raise ValueError("❌ Failed to get a valid pattern from LLM after multiple retries.")
+
+        pattern = get_valid_pattern(prompt)
+        
 
         self.snowflake_calls += 1
 
         self._log(f"Turn {turn}: LLM pattern = {pattern}")
 
-        def match_pattern(word, guess, pattern):
-            # word: candidate
-            # guess: previous guess
-            # pattern: e.g. 'BBGYB'
 
+        def match_pattern(word, guess, pattern):
             # Step 1: Check exact matches for 'B'
             for i in range(5):
-                if pattern[i] == "B":
-                    if word[i] != guess[i]:
-                        return False
-
-            # Step 2: Count how many Y's and G's should be used per letter (to handle duplicates)
-            required_counts = {}
-            for i in range(5):
-                if pattern[i] in ('Y', 'G'):
-                    required_counts[guess[i]] = required_counts.get(guess[i], 0) + 1
-
-            # Step 3: Count how many letters actually match for Y/G
-            actual_counts = Counter(word)
-            for ch, cnt in required_counts.items():
-                if actual_counts.get(ch, 0) < cnt:
+                if pattern[i] == "B" and word[i] != guess[i]:
                     return False
 
-            # Step 4: Check Y/G positions
-            seen_counts = {}
+            # Step 2: Build counters to manage letter occurrences
+            guess_counter = Counter()
+            word_counter = Counter(word)
+
+            # Step 3: First, handle 'B' positions to reduce counts
             for i in range(5):
-                ch = guess[i]
-                if pattern[i] == 'Y':
-                    if word[i] == ch:
+                if pattern[i] == "B":
+                    ch = guess[i]
+                    guess_counter[ch] += 1
+                    word_counter[ch] -= 1  # use up one instance of that letter in word
+
+            # Step 4: Handle 'Y' positions
+            for i in range(5):
+                if pattern[i] == "Y":
+                    ch = guess[i]
+                    if word[i] == ch:  # same position match is invalid for Y
                         return False
-                    seen_counts[ch] = seen_counts.get(ch, 0) + 1
-                elif pattern[i] == 'G':
-                    seen_counts[ch] = seen_counts.get(ch, 0) + 1
+                    if word_counter[ch] <= 0:  # no more of that letter left
+                        return False
+                    word_counter[ch] -= 1  # use up one instance
+                    guess_counter[ch] += 1
+
+            # Step 5: Handle 'G' positions
+            for i in range(5):
+                if pattern[i] == "G":
+                    ch = guess[i]
+                    if word[i] == ch:  # can't be same letter in same position
+                        return False
+                    # 'G' means the letter is not in the word (or already used up)
+                    if word_counter[ch] > 0:
+                        return False
 
             return True
+
 
 
         filtered_candidates = [w for w in candidates if match_pattern(w, last_guess, pattern)]
