@@ -9,8 +9,74 @@ from dotenv import load_dotenv
 from collections import Counter
 import re
 import traceback
+import random
 
 load_dotenv()
+WORD_LIST = [line.strip() for line in open("words.txt") if len(line.strip()) == 5]
+
+# 샘플 few-shot 예시
+few_shot_examples = [
+    {
+        "guess": "cares",
+        "feedback": "The letters 'a' and 'e' are in their correct spots. 'c', 'r', and 's' do not appear in the word.",
+        "output": "02200", 
+        "explanation": "the first digit('c') is 0 because 'c', 'r', and 's' do not appear in the word. the second digit('a') is 2 because The letters 'a' and 'e' are in their correct spots. the third digit('r') is 2 because 'c', 'r', and 's' do not appear in the word. the fourth digit('e') is 0 because The letters 'a' and 'e' are in their correct spots. the fifth and last digit('s') is 2 'c', 'r', and 's' do not appear in the word"
+    },
+    {
+        "guess": "slate",
+        "feedback": "'l' and 'e' are somewhere in the word but misplaced. 't', 's', and 'a' are not in the word.",
+        "output": "01001",
+        "explanation": "the first digit('s') is 0 because 't', 's', and 'a' are not in the word. the second digit('l') is 1 because 'l' and 'e' are somewhere in the word but misplaced. the third digit('a') is 0 beacuse 't', 's', and 'a' are not in the word. the fourth digit('t') is 0 because The letters 'a' and 'e' are in their correct spots. the fifth and last digit('e') is 1 beacuse 'l' and 'e' are somewhere in the word but misplaced."
+    },
+    {
+        "guess": "abide",
+        "feedback": "Only 'b' is in the right position. 'a' is in the word. Others aren't in the target.",
+        "output": "12000",
+        "explanation":"the first digit('a') is 1 because Only 'b' is in the right position. 'a' is in the word. the second digit('b') is 2 because Only 'b' is in the right position. the third digit('i') is 0 beacuse Others(excluding 'b' and 'a') aren't in the target. the fourth digit('d') is 0 because Others(excluding 'b' and 'a') aren't in the target. the fifth and last digit('e') is 0 beacuse Others(excluding 'b' and 'a') aren't in the target."
+    },
+    {
+        "guess": "crane",
+        "feedback": "All letters are wrong except 'a', which is in the correct spot.",
+        "output": "00200",
+        "explanation":"the first digit('c') is 0 because All letters are wrong except 'a'. the second digit('r') is 0 because All letters are wrong except 'a'. the third digit('a') is 2 beacuse All letters are wrong except 'a', which is in the correct spot. the fourth digit('n') is 0 because All letters are wrong except 'a'. the fifth and last digit('e') is 0 beacuse All letters are wrong except 'a'."
+    }
+]
+
+def normalize_feedback(feedback: str) -> str:
+    feedback = feedback.lower()
+    feedback = feedback.replace("not in the word", "absent")
+    feedback = re.sub(r"correct.*position", "correct", feedback)
+    feedback = re.sub(r"right.*spot", "correct", feedback)
+    feedback = re.sub(r"wrong.*position", "misplaced", feedback)
+    feedback = feedback.replace("somewhere else", "misplaced")
+    return feedback
+
+def build_prompt(guess: str, verbal_feedback: str, few_shot_data: list) -> str:
+    samples = random.sample(few_shot_data, k=min(4, len(few_shot_data)))
+    prompt = "You are a Wordle feedback interpreter.\n\n"
+    prompt += "You will be given:\n- A 5-letter guess word\n- Natural language feedback describing the correctness of each letter in that guess\n\n"
+    prompt += "Your task:\n- Output a 5-letter feedback code using only the characters: 0, 1, 2\n\n"
+    prompt += "Legend:\n- 2: letter is in the correct position\n- 1: letter is in the word but in the wrong position\n- 0: letter is not in the word at all\n\n"
+    prompt += "Examples:\n"
+
+    for ex in samples:
+        prompt += f"Guess: {ex['guess']}\nFeedback: {ex['feedback']}\nOutput: {ex['output']}\n\n"
+    
+    prompt += (
+    "Please format your response like this:\n"
+    'For the guess "GUESS":\n'
+    "- 'x' is {correct/misplaced/absent} ({2/1/0})\n"
+    "- ...\n"
+    "Therefore, the feedback code is:\n"
+    "01220\n\n"
+
+    f"Guess: {guess}\nFeedback: {verbal_feedback}\n"
+    "Output (must be exactly 5 letters of 0/1/2 matching the feedback):"
+    
+    "Example: \n If 's' is misplaced and 'e' is correct, then the last two letters of the code must be: 12 (Not 22!)"
+    )
+    return prompt
+
 
 class Solver:
     def __init__(self):
@@ -19,6 +85,7 @@ class Solver:
         self.problems = {}
         self.snowflake_calls = 0
         self.log_file = open("run.log", "a")
+        self.original_wordlist = WORD_LIST
         atexit.register(self.cleanup)
         
         # 최적화된 시작 단어들 (정보량이 높은 순서)
@@ -27,24 +94,7 @@ class Solver:
             'cares', 'tears', 'stare', 'reals', 'rates', 'tales', 'least'
         ]
         
-        # 개선된 피드백 파싱 프롬프트
-        self.prompt = """You are a Wordle feedback parser. Convert natural language feedback to exactly 5 letters using G, Y, B.
 
-Rules:
-- G (Gray): letter is NOT in the word
-- Y (Yellow): letter is IN the word but WRONG position  
-- B (Black/Green): letter is in CORRECT position
-
-Parse each position of the guess word based on the feedback description.
-
-Examples:
-Input: "'r' is not in the word. 'a' is in the correct position. 'i' is not in the word. 's' is not in the word. 'e' is in the word but in the wrong position."
-Output: GBGGY
-
-Input: "'h' is in the word but in the wrong position. 'a' is in the correct position. 'l' is not in the word. 'e' is in the correct position. 'd' is in the correct position."
-Output: YBGBB
-
-Return ONLY the 5-character code with no explanation."""
 
     def _init_snowflake(self):
         connection_params = {
@@ -68,7 +118,7 @@ Return ONLY the 5-character code with no explanation."""
     def _log(self, msg):
         ts = datetime.datetime.now().isoformat()
         print(f"[LOG] {msg}")
-        self.log_file.write(f"[{ts}] {msg}\n")
+        #self.log_file.write(f"[{ts}] {msg}\n")
         self.log_file.flush()
 
     def start_problem(self, problem_id, candidate_words):
@@ -104,116 +154,83 @@ Return ONLY the 5-character code with no explanation."""
         self._log(f"RESET: Using starter #{data['starter_index']}, candidates: {len(data['candidate_words'])}")
 
     def parse_feedback_llm(self, guess, verbal_feedback):
-        """LLM을 사용한 피드백 파싱 (개선된 버전)"""
         try:
-            user_prompt = f"""Guess word: {guess}
-Feedback: {verbal_feedback}
+            normalized = normalize_feedback(verbal_feedback)
+            user_prompt = build_prompt(guess, normalized, few_shot_examples)
 
-Convert to 5-character code (G/Y/B):"""
-            
             response = complete(
                 model=self.model,
                 prompt=[
-                    {"role": "system", "content": self.prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "system", "content": "You are a Wordle feedback interpreter."},
+                    {"role": "user", "content": user_prompt, }
                 ],
-                options={"max_tokens": 10, "temperature": 0.0},
+                options={"max_tokens": 115, "temperature": 0.0},
                 session=self.session
             )
-            
-            # 응답에서 정확한 GYB 패턴 추출
-            clean_response = response.strip().upper()
-            
-            # 5글자 GYB 패턴 찾기
-            gyb_pattern = re.findall(r'[GYB]{5}', clean_response)
-            if gyb_pattern:
-                return gyb_pattern[0]
-            
-            # 패턴이 없으면 GYB 문자만 추출
-            gyb_chars = ''.join(c for c in clean_response if c in "GYB")
-            if len(gyb_chars) >= 5:
-                return gyb_chars[:5]
-            
-            # 부족하면 G로 채움
-            return gyb_chars.ljust(5, 'G')
-            
-        except Exception as e:
-            self._log(f"LLM parsing error: {e}")
-            return "GGGGG"
 
-    def parse_feedback_rules(self, guess, verbal_feedback):
-        """개선된 규칙 기반 피드백 파싱"""
-        try:
-            feedback = ['G'] * 5
-            feedback_lower = verbal_feedback.lower()
-            
-            # 각 글자별로 피드백 분석
-            for i, letter in enumerate(guess.lower()):
-                # 해당 글자에 대한 설명 찾기
-                letter_patterns = [
-                    f"'{letter}' is in the correct position",
-                    f"'{letter}' is correct",
-                    f"'{letter}' is in the right position"
-                ]
-                
-                wrong_position_patterns = [
-                    f"'{letter}' is in the word but in the wrong position",
-                    f"'{letter}' is in the word but wrong position",
-                    f"'{letter}' is misplaced"
-                ]
-                
-                not_in_word_patterns = [
-                    f"'{letter}' is not in the word"
-                ]
-                
-                # 패턴 매칭
-                if any(pattern in feedback_lower for pattern in letter_patterns):
-                    feedback[i] = 'B'
-                elif any(pattern in feedback_lower for pattern in wrong_position_patterns):
-                    feedback[i] = 'Y'
-                elif any(pattern in feedback_lower for pattern in not_in_word_patterns):
-                    feedback[i] = 'G'
-            
-            return ''.join(feedback)
-            
-        except Exception as e:
-            self._log(f"Rule-based parsing error: {e}")
-            return "GGGGG"
+            self._log(f"[RAW LLM RESPONSE] {response}")
 
+            if isinstance(response, str):
+                content = response.strip()
+            elif isinstance(response, dict):
+                content = response.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            else:
+                content = str(response).strip()
+
+            #clean_response = content.upper()
+            #self._log(f"[CLEANED RESPONSE] {clean_response}")
+
+            # 정확히 5글자 GYB만 뽑기 (공백/기호 제거 후)
+            gyb_exact = re.findall(r"\b[012]{5}\b", content)
+            if gyb_exact:
+                self._log(f"[EXACT PATTERN MATCH] {gyb_exact[0]}")
+                return gyb_exact[0]
+
+            # 문자만 필터링해서 만들어보기
+            gyb_only = ''.join(c for c in content if c in "012")
+            if len(gyb_only) >= 5:
+                self._log(f"[CHAR ONLY MATCH] {gyb_only[:5]}")
+                return gyb_only[:5]
+
+            self._log(f"[FALLBACK] Not enough info, defaulting to 00000. Original: {content}")
+            return gyb_only.ljust(5, 'G')
+
+        except Exception as e:
+            self._log(f"[LLM PARSE ERROR] {e}")
+            return "00000"
+
+        
     def parse_feedback(self, guess, verbal_feedback):
-        """피드백 파싱 (LLM 우선, 규칙 기반 백업)"""
         try:
-            # LLM 파싱 시도
             llm_result = self.parse_feedback_llm(guess, verbal_feedback)
-            
-            # 결과 검증
             if self.is_valid_feedback_code(llm_result):
-                self._log(f"Feedback parsing: '{verbal_feedback}' -> '{llm_result}'")
+                self._log(f"[LLM FEEDBACK PARSED]: guess = {guess}, parsed_code = {llm_result}")
                 return llm_result
             else:
-                # LLM 결과가 유효하지 않으면 규칙 기반 사용
-                rule_result = self.parse_feedback_rules(guess, verbal_feedback)
-                self._log(f"LLM failed, using rules: '{verbal_feedback}' -> '{rule_result}'")
-                return rule_result
-                
+                return self.parse_feedback_rules(guess, verbal_feedback)
         except Exception as e:
             self._log(f"Parse feedback error: {e}")
             return self.parse_feedback_rules(guess, verbal_feedback)
 
     def is_valid_feedback_code(self, code):
         """피드백 코드가 유효한지 확인"""
-        return len(code) == 5 and all(c in 'GYB' for c in code)
+        return len(code) == 5 and all(c in '012' for c in code)
+
+    def parse_feedback_rules(self, guess, verbal_feedback):
+        """규칙 기반 피드백 해석 (간단 버전, 예외 처리를 위해 존재)"""
+        self._log(f"Fallback parsing used: {verbal_feedback}")
+        return "00000"  # 아주 간단한 placeholder
 
     def compute_actual_feedback(self, secret, guess):
         """실제 Wordle 규칙에 따라 피드백 계산 (정확한 구현)"""
-        feedback = ['G'] * 5
+        feedback = ['0'] * 5
         secret_chars = list(secret.lower())
         guess_chars = list(guess.lower())
 
         # 1단계: 정확한 위치 (B) 처리
         for i in range(5):
             if guess_chars[i] == secret_chars[i]:
-                feedback[i] = 'B'
+                feedback[i] = '2'
                 secret_chars[i] = None  # 사용됨 표시
                 guess_chars[i] = None
 
@@ -221,22 +238,14 @@ Convert to 5-character code (G/Y/B):"""
         for i in range(5):
             if guess_chars[i] is not None:  # 아직 처리되지 않은 글자
                 if guess_chars[i] in secret_chars:
-                    feedback[i] = 'Y'
+                    feedback[i] = '1'
                     # secret에서 해당 글자 제거 (중복 처리)
                     secret_chars[secret_chars.index(guess_chars[i])] = None
 
         return ''.join(feedback)
 
-    def is_word_consistent(self, word, guess, feedback_code):
-        """단어가 추측과 피드백에 일치하는지 확인"""
-        if len(word) != 5 or len(guess) != 5 or len(feedback_code) != 5:
-            return False
-            
-        actual_feedback = self.compute_actual_feedback(word, guess)
-        return actual_feedback == feedback_code
-
+    """피드백에 맞는 후보들만 필터링"""
     def filter_candidates(self, candidates, guess, feedback_code):
-        """피드백에 맞는 후보들만 필터링"""
         valid_candidates = []
         
         for candidate in candidates:
@@ -249,8 +258,17 @@ Convert to 5-character code (G/Y/B):"""
         
         return valid_candidates
 
+    def is_word_consistent(self, word, guess, feedback_code):
+        """단어가 추측과 피드백에 일치하는지 확인"""
+        if len(word) != 5 or len(guess) != 5 or len(feedback_code) != 5:
+            return False
+
+        # 실제 Wordle 규칙에 따라 피드백을 재계산
+        actual_feedback = self.compute_actual_feedback(word, guess)
+        return actual_feedback == feedback_code
+
+    """단어의 정보 획득량 계산"""
     def calculate_information_gain(self, word, candidates):
-        """단어의 정보 획득량 계산"""
         if not candidates or len(candidates) <= 1:
             return 0
         
@@ -316,26 +334,57 @@ Convert to 5-character code (G/Y/B):"""
             self._log(f"Error in select_best_guess: {e}")
             return candidates[0]
 
+    """다음 시작 단어 선택 (candidate_words에 존재하는 가장 앞 optimal_starter)"""
     def get_next_starter(self, problem_id):
-        """다음 시작 단어 선택"""
         data = self.problems[problem_id]
         starter_idx = data["starter_index"]
-        
-        if starter_idx < len(self.optimal_starters):
-            starter = self.optimal_starters[starter_idx]
+
+        # optimal_starters 순회하면서 존재하는 것 중 첫 번째 선택
+        for i in range(starter_idx, len(self.optimal_starters)):
+            starter = self.optimal_starters[i]
             if starter in data["candidate_words"]:
+                data["starter_index"] = i
                 return starter
-        
+
         # 백업: 고유 글자가 많은 단어 선택
         return max(data["candidate_words"][:20], key=lambda w: len(set(w)), default=data["candidate_words"][0])
+
+    def special_guess(self, problem_id):
+        data = self.problems[problem_id]
+        candidates = data["candidate_words"]
+        guesses = data["guess_history"]
+
+        if len(candidates) <= 3:
+            return None
+        
+        possible_letter_sets = [set(word[i] for word in candidates) for i in range(5)]
+
+        diverse_letters = set()
+        common_letters = []
+        count = 0
+        for letter_set in possible_letter_sets:
+            if len(letter_set) > 1:
+                diverse_letters.update(letter_set)
+                count += 1
+            else:
+                common_letters.append(list(letter_set)[0])
+        
+        if count > 3:
+            return None
+        diverse_letters_ls = list(diverse_letters)
+        diverse_letters_list = [l for l in diverse_letters_ls if l not in common_letters]
+        if len(diverse_letters_list) < 4:
+            diverse_letters_list = diverse_letters_ls
+        diverse_letters_ = diverse_letters_list*((5//len(diverse_letters_list)+1))
+        return "".join(diverse_letters_[:5])
+
+        
 
     def choose_next_guess(self, problem_id, turn):
         data = self.problems[problem_id]
         candidates = data["candidate_words"]
         history = data["feedback_history"]
         guesses = data["guess_history"]
-
-        self._log(f"Turn {turn}: {len(candidates)} candidates remaining")
 
         try:
             # 첫 번째 추측
@@ -351,9 +400,14 @@ Convert to 5-character code (G/Y/B):"""
             
             # 피드백 파싱
             feedback_code = self.parse_feedback(last_guess, last_feedback)
-            
-            # 후보 필터링
-            filtered_candidates = self.filter_candidates(candidates, last_guess, feedback_code)
+
+            # 후보가 2개인 경우: 필터링 생략, 방금 단어만 제거
+            if len(candidates) == 2:
+                filtered_candidates = [w for w in candidates if w != last_guess]
+                self._log(f"[SKIP FILTERING] 2 candidates remain, removed last guess '{last_guess}', remaining: {filtered_candidates}")
+            else:
+                filtered_candidates = self.filter_candidates(candidates, last_guess, feedback_code)
+
             
             # 필터링 결과 검증
             if not filtered_candidates:
@@ -375,6 +429,26 @@ Convert to 5-character code (G/Y/B):"""
             self._log(f"After filtering: {len(filtered_candidates)} candidates")
             if len(filtered_candidates) <= 10:
                 self._log(f"Remaining candidates: {filtered_candidates}")
+
+                if len(filtered_candidates) == 1:
+                    guess = filtered_candidates[0]
+                    guesses.append(guess)
+                    self._log(f"[FINAL GUESS] Only one candidate left: {guess}")
+                    return guess
+                
+                if len(filtered_candidates) == 2:
+                    # 그냥 앞에 있는 후보를 고름
+                    guess = filtered_candidates[0]
+                    guesses.append(guess)
+                    self._log(f"[TWO CANDIDATES] Skipping special guess, choosing: {guess}")
+                    return guess
+                
+            if self.special_guess(problem_id):
+                    special_guess = self.special_guess(problem_id)
+                    guesses.append(special_guess)
+                    self._log(f"[SPECIAL GUESS] Using special guess: {special_guess}")
+                    return special_guess
+
             
             # 다음 추측 선택
             guess = self.select_best_guess(filtered_candidates)
@@ -386,7 +460,7 @@ Convert to 5-character code (G/Y/B):"""
                         guess = candidate
                         break
                 else:
-                    raise Exception
+                    guess = "error"
             
             guesses.append(guess)
             self._log(f"Next guess: {guess}")
@@ -450,7 +524,7 @@ class StudentHandler(BaseHTTPRequestHandler):
 def run():
     port = int(os.environ.get("PORT", 8000))
     server = HTTPServer(("0.0.0.0", port), StudentHandler)
-    print(f"Student server running on port {port}...")
+    print(f"Student server running on port {port}…")
     server.serve_forever()
 
 if __name__ == "__main__":
