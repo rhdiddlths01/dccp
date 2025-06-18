@@ -75,7 +75,32 @@ def build_prompt(guess: str, verbal_feedback: str, few_shot_data: list) -> str:
     
     "Example: \n If 's' is misplaced and 'e' is correct, then the last two letters of the code must be: 12 (Not 22!)"
     )
+    prompt += (
+    "Please format your response exactly like this:\n"
+    'For the guess "GUESS":\n'
+    "- 'g' is absent (0)\n"
+    "- 'u' is misplaced (1)\n"
+    "- 'm' is absent (0)\n"
+    "- 'b' is absent (0)\n"
+    "- 'o' is misplaced (1)\n"
+    "Therefore, the feedback code is:\n"
+    "01001\n\n"
+
+    f"Guess: {guess}\nFeedback: {verbal_feedback}\n"
+    "Output (must be exactly 5 digits of 0/1/2 matching the feedback):"
+)
     return prompt
+
+def find_best_match(diverse_letters, now_candidates):
+        # 각 글자의 빈도수를 세어 중요도를 부여할 수도 있음
+    letter_set = set(diverse_letters)
+        
+    def score(word):
+            # word에 있는 글자 중 얼마나 diverse_letters에 있는지를 점수로 계산
+        return len(set(word) & letter_set)
+
+        # 가장 점수가 높은 단어 찾기
+    return max(now_candidates, key=score)
 
 
 class Solver:
@@ -129,7 +154,7 @@ class Solver:
             "feedback_history": [],
             "starter_index": 0,
             "error_count": 0,
-            "max_errors": 3
+            "max_errors": 2
         }
         self._log(f"=== Problem {problem_id} started with {len(candidate_words)} candidates ===")
 
@@ -348,16 +373,20 @@ class Solver:
 
         # 백업: 고유 글자가 많은 단어 선택
         return max(data["candidate_words"][:20], key=lambda w: len(set(w)), default=data["candidate_words"][0])
+    
+    from collections import Counter
+
 
     def special_guess(self, problem_id):
         data = self.problems[problem_id]
-        candidates = data["candidate_words"]
+        ori_candidates = data["original_candidates"]
+        now_candidates = data["candidate_words"]
         guesses = data["guess_history"]
 
-        if len(candidates) <= 3:
+        if len(now_candidates) <= 5:
             return None
         
-        possible_letter_sets = [set(word[i] for word in candidates) for i in range(5)]
+        possible_letter_sets = [set(word[i] for word in now_candidates) for i in range(5)]
 
         diverse_letters = set()
         common_letters = []
@@ -376,7 +405,8 @@ class Solver:
         if len(diverse_letters_list) < 4:
             diverse_letters_list = diverse_letters_ls
         diverse_letters_ = diverse_letters_list*((5//len(diverse_letters_list)+1))
-        return "".join(diverse_letters_[:5])
+
+        return find_best_match(diverse_letters_, ori_candidates)
 
         
 
@@ -420,8 +450,8 @@ class Solver:
                     return self.choose_next_guess(problem_id, turn)
                 else:
                     # 덜 엄격한 필터링 시도 또는 원본 후보 사용
-                    filtered_candidates = [w for w in data["original_candidates"] 
-                                         if w not in guesses][:100]
+                    filtered_candidates = [w for w in candidates if w != last_guess]
+
             
             # 후보 목록 업데이트
             data["candidate_words"] = filtered_candidates
@@ -460,7 +490,9 @@ class Solver:
                         guess = candidate
                         break
                 else:
-                    guess = "error"
+                    self._log("All candidates already guessed. Resetting starter.")
+                    self.reset_with_new_starter(problem_id)
+                    return self.choose_next_guess(problem_id, turn)
             
             guesses.append(guess)
             self._log(f"Next guess: {guess}")
@@ -471,11 +503,8 @@ class Solver:
             self._log(f"Traceback: {traceback.format_exc()}")
             
             data["error_count"] += 1
-            if data["error_count"] >= data["max_errors"]:
-                self.reset_with_new_starter(problem_id)
-                return self.choose_next_guess(problem_id, turn)
-            else:
-                return "error"
+            self.reset_with_new_starter(problem_id)
+            return self.choose_next_guess(problem_id, turn)
 
 
 solver = Solver()
